@@ -40,16 +40,93 @@ pipeline {
 
         stage('Docker Push') {
             steps {
-                echo 'Pushing image to DockerHub...'
+                echo 'Logging in to DockerHub and pushing image...'
 
-                script {
-                    docker.withRegistry(
-                        'https://index.docker.io/v1/',
-                        "${DOCKER_CREDENTIALS}"
-                    ) {
-                        docker.image("${DOCKER_IMAGE}:${BUILD_NUMBER}").push()
-                        docker.image("${DOCKER_IMAGE}:latest").push()
-                    }
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                        docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                        docker push ${DOCKER_IMAGE}:latest
+                        docker logout
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully!"
+            echo "Docker Image: ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+        }
+
+        failure {
+            echo "Pipeline failed. Check the stage logs."
+        }
+    }
+}pipeline {
+    agent {
+        label ''
+    }
+
+    environment {
+        DOCKER_IMAGE = 'ayushman21/spring-boot-demo'
+        DOCKER_CREDENTIALS = 'docker-hub-credentials'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code...'
+                checkout scm
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                echo 'Building Spring Boot application...'
+                dir('java-maven-sonar-argocd-helm-k8s/spring-boot-app') {
+                    sh 'mvn clean package'
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                echo 'Building Docker image...'
+                dir('java-maven-sonar-argocd-helm-k8s/spring-boot-app') {
+                    sh """
+                        docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
+                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest
+                    """
+                }
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                echo 'Logging in to DockerHub and pushing image...'
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                        docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                        docker push ${DOCKER_IMAGE}:latest
+                        docker logout
+                    '''
                 }
             }
         }
@@ -66,4 +143,3 @@ pipeline {
         }
     }
 }
-
